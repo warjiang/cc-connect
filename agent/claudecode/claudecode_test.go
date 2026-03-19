@@ -1,6 +1,9 @@
 package claudecode
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -129,5 +132,90 @@ func TestSummarizeInput_AskUserQuestion(t *testing.T) {
 	result := summarizeInput("AskUserQuestion", input)
 	if result == "" {
 		t.Error("expected non-empty summary for AskUserQuestion")
+	}
+}
+
+func TestParseOptionEnv_FromSettingsJSON(t *testing.T) {
+	opts := map[string]any{
+		"settings_json": `{
+			"env": {
+				"DISABLE_TELEMETRY": "1",
+				"ANTHROPIC_BASE_URL": "https://example.com",
+				"API_TIMEOUT_MS": "3000000"
+			}
+		}`,
+	}
+
+	env, err := parseOptionEnv(opts)
+	if err != nil {
+		t.Fatalf("parseOptionEnv returned error: %v", err)
+	}
+
+	got := strings.Join(env, "\n")
+	for _, expect := range []string{
+		"DISABLE_TELEMETRY=1",
+		"ANTHROPIC_BASE_URL=https://example.com",
+		"API_TIMEOUT_MS=3000000",
+	} {
+		if !strings.Contains(got, expect) {
+			t.Fatalf("missing env %q in %v", expect, env)
+		}
+	}
+}
+
+func TestParseOptionEnv_FromSettingsFile(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "claude-settings.json")
+	content := `{
+		"env": {
+			"ANTHROPIC_AUTH_TOKEN": "token-123",
+			"ANTHROPIC_MODEL": "deepseek-v3.2"
+		}
+	}`
+	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write settings file: %v", err)
+	}
+
+	env, err := parseOptionEnv(map[string]any{"settings_file": settingsPath})
+	if err != nil {
+		t.Fatalf("parseOptionEnv returned error: %v", err)
+	}
+	got := strings.Join(env, "\n")
+	if !strings.Contains(got, "ANTHROPIC_AUTH_TOKEN=token-123") {
+		t.Fatalf("missing ANTHROPIC_AUTH_TOKEN in %v", env)
+	}
+	if !strings.Contains(got, "ANTHROPIC_MODEL=deepseek-v3.2") {
+		t.Fatalf("missing ANTHROPIC_MODEL in %v", env)
+	}
+}
+
+func TestParseOptionEnv_MergePriority(t *testing.T) {
+	opts := map[string]any{
+		"settings_json": `{
+			"env": {
+				"ANTHROPIC_MODEL": "from-settings-json",
+				"API_TIMEOUT_MS": "1000"
+			}
+		}`,
+		"settings": map[string]any{
+			"env": map[string]any{
+				"ANTHROPIC_MODEL": "from-settings-map",
+			},
+		},
+		"env": map[string]any{
+			"ANTHROPIC_MODEL": "from-options-env",
+		},
+	}
+
+	env, err := parseOptionEnv(opts)
+	if err != nil {
+		t.Fatalf("parseOptionEnv returned error: %v", err)
+	}
+	got := strings.Join(env, "\n")
+	if !strings.Contains(got, "ANTHROPIC_MODEL=from-options-env") {
+		t.Fatalf("expect highest priority value in %v", env)
+	}
+	if !strings.Contains(got, "API_TIMEOUT_MS=1000") {
+		t.Fatalf("expect API_TIMEOUT_MS inherited from settings_json in %v", env)
 	}
 }

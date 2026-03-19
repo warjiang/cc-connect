@@ -36,6 +36,7 @@ type Agent struct {
 	workDir      string
 	model        string
 	mode         string // "default" | "acceptEdits" | "plan" | "bypassPermissions" | "dontAsk"
+	optionEnv    []string
 	allowedTools []string
 	providers    []core.ProviderConfig
 	activeIdx    int // -1 = no provider set
@@ -54,6 +55,10 @@ func New(opts map[string]any) (core.Agent, error) {
 	workDir, _ := opts["work_dir"].(string)
 	if workDir == "" {
 		workDir = "."
+	}
+	optionEnv, err := parseOptionEnv(opts)
+	if err != nil {
+		return nil, err
 	}
 	model, _ := opts["model"].(string)
 	mode, _ := opts["mode"].(string)
@@ -80,6 +85,7 @@ func New(opts map[string]any) (core.Agent, error) {
 		workDir:      workDir,
 		model:        model,
 		mode:         mode,
+		optionEnv:    optionEnv,
 		allowedTools: allowedTools,
 		activeIdx:    -1,
 		routerURL:    routerURL,
@@ -233,7 +239,8 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	tools := make([]string, len(a.allowedTools))
 	copy(tools, a.allowedTools)
 	model := a.model
-	extraEnv := a.providerEnvLocked()
+	extraEnv := append([]string(nil), a.optionEnv...)
+	extraEnv = append(extraEnv, a.providerEnvLocked()...)
 	extraEnv = append(extraEnv, a.sessionEnv...)
 
 	// Add Claude Code Router environment variables if configured
@@ -258,6 +265,81 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 	a.mu.Unlock()
 
 	return newClaudeSession(ctx, a.workDir, model, sessionID, a.mode, tools, extraEnv, platformPrompt)
+}
+
+func parseOptionEnv(opts map[string]any) ([]string, error) {
+	envMap := make(map[string]string)
+
+	if path, _ := opts["settings_file"].(string); strings.TrimSpace(path) != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("claudecode: read settings_file: %w", err)
+		}
+		if err := mergeSettingsEnvJSON(envMap, b); err != nil {
+			return nil, fmt.Errorf("claudecode: parse settings_file: %w", err)
+		}
+	}
+
+	if raw, _ := opts["settings_json"].(string); strings.TrimSpace(raw) != "" {
+		if err := mergeSettingsEnvJSON(envMap, []byte(raw)); err != nil {
+			return nil, fmt.Errorf("claudecode: parse settings_json: %w", err)
+		}
+	}
+
+	if settings, ok := opts["settings"].(map[string]any); ok {
+		mergeEnvMapFromAny(envMap, settings["env"])
+	}
+
+	mergeEnvMapFromAny(envMap, opts["env"])
+
+	if len(envMap) == 0 {
+		return nil, nil
+	}
+
+	keys := make([]string, 0, len(envMap))
+	for k := range envMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	env := make([]string, 0, len(keys))
+	for _, k := range keys {
+		env = append(env, k+"="+envMap[k])
+	}
+	return env, nil
+}
+
+func mergeSettingsEnvJSON(dst map[string]string, data []byte) error {
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return err
+	}
+	mergeEnvMapFromAny(dst, settings["env"])
+	return nil
+}
+
+func mergeEnvMapFromAny(dst map[string]string, raw any) {
+	switch v := raw.(type) {
+	case map[string]string:
+		for k, val := range v {
+			if k == "" {
+				continue
+			}
+			dst[k] = val
+		}
+	case map[string]any:
+		for k, val := range v {
+			if k == "" || val == nil {
+				continue
+			}
+			switch vv := val.(type) {
+			case string:
+				dst[k] = vv
+			default:
+				dst[k] = fmt.Sprint(vv)
+			}
+		}
+	}
 }
 
 func (a *Agent) ListSessions(ctx context.Context) ([]core.AgentSessionInfo, error) {

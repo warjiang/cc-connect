@@ -101,6 +101,35 @@ mode = "default"
 # allowed_tools = ["Read", "Grep", "Glob"]
 ```
 
+### Claude Code settings 环境变量注入
+
+`claudecode` 支持 4 种方式注入 Claude 风格 settings 的 `env`：
+
+```toml
+[projects.agent.options]
+work_dir = "/path/to/project"
+
+# 1) 直接使用 env 映射
+env = { DISABLE_TELEMETRY = "1", ANTHROPIC_BASE_URL = "https://litellm.example.com" }
+
+# 2) settings 对象（与 claude-code settings.json 结构一致）
+# settings = { env = { ANTHROPIC_MODEL = "deepseek-v3.2" } }
+
+# 3) 原始 settings JSON 字符串
+# settings_json = """{
+#   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+#   "env": {
+#     "ANTHROPIC_AUTH_TOKEN": "your-token",
+#     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v3.2"
+#   }
+# }"""
+
+# 4) settings JSON 文件路径
+# settings_file = "/absolute/path/to/claude-code-settings.json"
+```
+
+合并优先级（高 → 低）：`env` > `settings.env` > `settings_json.env` > `settings_file.env`。
+
 运行时切换：
 ```
 /mode          # 查看当前和可用模式
