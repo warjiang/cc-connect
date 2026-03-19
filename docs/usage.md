@@ -101,6 +101,35 @@ mode = "default"
 # allowed_tools = ["Read", "Grep", "Glob"]
 ```
 
+### Claude Code Settings Env Injection
+
+`claudecode` supports Claude-style settings env in four forms:
+
+```toml
+[projects.agent.options]
+work_dir = "/path/to/project"
+
+# 1) direct env map
+env = { DISABLE_TELEMETRY = "1", ANTHROPIC_BASE_URL = "https://litellm.example.com" }
+
+# 2) settings object (same shape as claude-code settings.json)
+# settings = { env = { ANTHROPIC_MODEL = "deepseek-v3.2" } }
+
+# 3) raw settings JSON string
+# settings_json = """{
+#   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+#   "env": {
+#     "ANTHROPIC_AUTH_TOKEN": "your-token",
+#     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v3.2"
+#   }
+# }"""
+
+# 4) settings JSON file path
+# settings_file = "/absolute/path/to/claude-code-settings.json"
+```
+
+Merge priority (high → low): `env` > `settings.env` > `settings_json.env` > `settings_file.env`.
+
 Switch at runtime:
 ```
 /mode          # show current and available modes
